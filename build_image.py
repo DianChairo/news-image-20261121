@@ -1,163 +1,210 @@
 #!/usr/bin/env python3
-"""Draw the 21 November 2026 front page: one image, six stories.
+"""Draw the 21 November 2026 front page: six stories, pure Pillow shapes."""
 
-Pure Pillow shapes and text, no photos, no network. Renders entry.png
-at 1024x1024 in the same directory as this script.
-"""
+import math
+import os
+import textwrap
 
 from PIL import Image, ImageDraw, ImageFont
 
 W, H = 1024, 1024
+PAPER = (246, 241, 231)
+NAVY = (22, 35, 63)
+NAVY_SOFT = (38, 54, 92)
+CRIMSON = (164, 22, 35)
+GOLD = (201, 162, 39)
+TEAL = (20, 82, 74)
+GREEN = (30, 86, 49)
+INK = (26, 26, 26)
+GREY = (92, 92, 88)
+CARD = (255, 255, 255)
+LINE = (210, 203, 188)
 
-PAPER = (250, 244, 231)
-CARD = (255, 250, 238)
-NAVY = (16, 42, 67)
-NAVY_DARK = (10, 30, 50)
-CRIMSON = (178, 34, 52)
-GOLD = (212, 144, 20)
-INK = (24, 24, 22)
-BODY = (70, 70, 64)
-MUTED = (118, 108, 90)
-WHITE = (255, 255, 255)
-CREAM_LINE = (212, 144, 20)
-
+SERIF = "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"
 SANS = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 SANS_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
 
-def load(path, size):
+def font(path, size):
     return ImageFont.truetype(path, size)
 
 
-def wrap_text(draw, text, fnt, max_width):
-    """Greedy word wrap returning lines that fit max_width."""
-    lines = []
-    current = ""
-    for word in text.split():
-        trial = (current + " " + word).strip()
-        if draw.textlength(trial, font=fnt) <= max_width:
-            current = trial
+def wrap(draw, text, fnt, max_w):
+    """Greedy word wrap using real text widths."""
+    words = text.split()
+    lines, cur = [], ""
+    for word in words:
+        trial = (cur + " " + word).strip()
+        if draw.textlength(trial, font=fnt) <= max_w:
+            cur = trial
         else:
-            if current:
-                lines.append(current)
-            current = word
-    if current:
-        lines.append(current)
+            if cur:
+                lines.append(cur)
+            cur = word
+    if cur:
+        lines.append(cur)
     return lines
 
 
-def draw_block(draw, x, y, text, fnt, color, max_width, leading):
-    """Draw wrapped text; return the y position after the last line."""
-    for line in wrap_text(draw, text, fnt, max_width):
-        draw.text((x, y), line, font=fnt, fill=color)
+def para(draw, xy, text, fnt, fill, max_w, leading):
+    x, y = xy
+    for line in wrap(draw, text, fnt, max_w):
+        draw.text((x, y), line, font=fnt, fill=fill)
         y += leading
     return y
 
 
-def rule(draw, x, y, width, color, height=4):
-    draw.rectangle([x, y, x + width, y + height], fill=color)
+def centred(draw, cx, y, text, fnt, fill):
+    w = draw.textlength(text, font=fnt)
+    draw.text((cx - w / 2, y), text, font=fnt, fill=fill)
+
+
+def starburst(draw, cx, cy, r_out, r_in, points, fill):
+    pts = []
+    for i in range(points * 2):
+        r = r_out if i % 2 == 0 else r_in
+        a = math.pi * i / points - math.pi / 2
+        pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+    draw.polygon(pts, fill=fill)
+
+
+def globe(draw, cx, cy, r):
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=GOLD, width=4)
+    draw.ellipse([cx - r * 0.45, cy - r, cx + r * 0.45, cy + r],
+                 outline=GOLD, width=3)
+    draw.line([cx - r, cy, cx + r, cy], fill=GOLD, width=3)
+    draw.arc([cx - r, cy - r * 0.55, cx + r, cy + r * 0.55],
+             200, 340, fill=GOLD, width=3)
+    draw.arc([cx - r, cy - r * 0.55, cx + r, cy + r * 0.55],
+             20, 160, fill=GOLD, width=3)
+
+
+def scales(draw, cx, cy, s, colour):
+    draw.line([cx, cy - s, cx, cy + s], fill=colour, width=4)
+    draw.line([cx - s, cy - s + 8, cx + s, cy - s + 8], fill=colour, width=4)
+    for sx in (cx - s, cx + s):
+        draw.line([sx, cy - s + 8, sx, cy + 2], fill=colour, width=3)
+        draw.polygon([(sx - 16, cy + 2), (sx + 16, cy + 2),
+                      (sx, cy + 20)], outline=colour, width=3)
+    draw.ellipse([cx - 6, cy + s - 4, cx + 6, cy + s + 4], fill=colour)
+
+
+def padlock(draw, cx, cy, w, h, colour):
+    draw.arc([cx - w // 2, cy - h // 2 - 14, cx + w // 2, cy + 6],
+             180, 360, fill=colour, width=6)
+    draw.rounded_rectangle([cx - w // 2, cy - 8, cx + w // 2, cy + h // 2],
+                           radius=6, fill=colour)
+    draw.ellipse([cx - 5, cy + 2, cx + 5, cy + 12], fill=PAPER)
+    draw.rectangle([cx - 2, cy + 10, cx + 2, cy + 22], fill=PAPER)
+
+
+def cross(draw, cx, cy, s, colour):
+    draw.rectangle([cx - s // 4, cy - s, cx + s // 4, cy + s], fill=colour)
+    draw.rectangle([cx - s, cy - s // 4, cx + s, cy + s // 4], fill=colour)
 
 
 def main():
     img = Image.new("RGB", (W, H), PAPER)
     d = ImageDraw.Draw(img)
 
-    # ---- Masthead -------------------------------------------------------
+    # ---- masthead ------------------------------------------------------
     d.rectangle([0, 0, W, 118], fill=NAVY)
-    mast = load(SANS_BOLD, 50)
-    d.text((34, 28), "THE WORLD IN ONE PAGE", font=mast, fill=WHITE)
-    sub = load(SANS_BOLD, 22)
-    d.text((34, 84), "SATURDAY 21 NOVEMBER 2026  |  SIX STORIES, ONE DAY",
-           font=sub, fill=GOLD)
-    issue = load(SANS, 22)
-    tag = "No. 325"
-    d.text((W - 34 - d.textlength(tag, font=issue), 84), tag,
-           font=issue, fill=WHITE)
-    d.rectangle([0, 118, W, 124], fill=CRIMSON)
+    centred(d, W // 2, 14, "THE WORLD TODAY", font(SERIF, 58), (250, 246, 236))
+    centred(d, W // 2, 82, "SATURDAY 21 NOVEMBER 2026  ·  WORLD NEWS IN ONE PAGE",
+            font(SANS_BOLD, 19), GOLD)
+    d.rectangle([0, 118, W, 124], fill=GOLD)
 
-    # ---- Lead story: COP31 ----------------------------------------------
-    d.rectangle([24, 138, 1000, 404], fill=NAVY)
-    d.rectangle([24, 138, 1000, 144], fill=GOLD)
-    kick = load(SANS_BOLD, 24)
-    d.text((52, 156), "CLIMATE  /  ANTALYA", font=kick, fill=GOLD)
-    num = load(SANS_BOLD, 34)
-    d.text((1000 - 52 - d.textlength("01", font=num), 150), "01",
-           font=num, fill=GOLD)
-    rule(d, 52, 192, 46, GOLD)
-    head = load(SANS_BOLD, 44)
-    y = draw_block(d, 52, 206,
-                   "COP31 spills into overtime as draft deal drops fossil fuels",
-                   head, WHITE, 920, 50)
-    rule(d, 52, y + 8, 46, GOLD)
-    deck = load(SANS, 25)
-    draw_block(d, 52, y + 24,
-               "Nearly 200 nations haggle into Saturday in Turkey after the "
-               "draft text strips out every mention of ending fossil-fuel use.",
-               deck, WHITE, 920, 31)
+    # ---- lead story: COP31 -------------------------------------------
+    d.rounded_rectangle([24, 140, 1000, 396], radius=14, fill=NAVY)
+    d.rectangle([24, 140, 40, 396], fill=GOLD)
+    d.text((62, 158), "CLIMATE  ·  COP31  ·  ANTALYA", font=font(SANS_BOLD, 20),
+           fill=GOLD)
+    y = para(d, (62, 192),
+             "COP31 spills into overtime as draft deal drops fossil-fuel exit",
+             font(SERIF, 36), (250, 246, 236), 560, 43)
+    para(d, (62, y + 8),
+         "Negotiators worked past the deadline after the draft "
+         "stripped out every mention of ending fossil-fuel use.",
+         font(SANS, 20), (214, 220, 232), 600, 28)
+    globe(d, 852, 268, 84)
+    d.text((772, 356), "TALKS RUN LATE", font=font(SANS_BOLD, 17), fill=GOLD)
 
-    # ---- Story grid -----------------------------------------------------
-    stories = [
-        ("WAR  /  UKRAINE", CRIMSON,
-         "Russian strike on Kryvyi Rih kills 2, wounds 42",
-         "Missiles hit the city centre on Friday night; four of the injured are children.",
-         "02"),
-        ("JUSTICE  /  THE HAGUE", NAVY,
-         "Myanmar calls ICJ genocide ruling 'unfair'",
-         "A day after the court found Myanmar guilty of genocide, its government rejects it.",
-         "03"),
-        ("BUSINESS  /  CYBER", CRIMSON,
-         "Hackers leak JPMorgan, Visa and Mastercard data",
-         "Group n0n exposes customer names and emails via vendors; no card numbers.",
-         "04"),
-        ("AMERICAS  /  BRAZIL", NAVY,
-         "Bolsonaro in hospital with intestinal blockage",
-         "The jailed ex-president, 71, is stable in hospital after severe abdominal pain.",
-         "05"),
+    # ---- middle grid: four stories ------------------------------------
+    cards = [
+        dict(x0=24, y0=412, x1=500, y1=596, bar=CRIMSON,
+             kicker="UKRAINE", icon="burst",
+             head="Ballistic missiles hit Kryvyi Rih",
+             body="Russia struck the Ukrainian city of Kryvyi Rih with "
+                  "ballistic missiles."),
+        dict(x0=524, y0=412, x1=1000, y1=596, bar=TEAL,
+             kicker="MYANMAR", icon="scales",
+             head="Myanmar rejects ICJ genocide ruling",
+             body="Myanmar called the International Court of Justice "
+                  "ruling \u201cunfair\u201d and rejected it."),
+        dict(x0=24, y0=612, x1=500, y1=796, bar=NAVY_SOFT,
+             kicker="CYBERCRIME", icon="lock",
+             head="Bank data leaked in n0n ransomware attack",
+             body="JPMorgan, Visa and Mastercard data leaked in a "
+                  "breach claimed by the n0n group."),
+        dict(x0=524, y0=612, x1=1000, y1=796, bar=GOLD,
+             kicker="BRAZIL", icon="cross",
+             head="Bolsonaro in hospital in Brasilia",
+             body="Former president Jair Bolsonaro was hospitalised "
+                  "in Brasilia."),
     ]
-    card_w, card_h = 476, 216
-    xs = [24, 524]
-    ys = [418, 648]
-    kick_f = load(SANS_BOLD, 21)
-    head_f = load(SANS_BOLD, 27)
-    body_f = load(SANS, 19)
-    num_f = load(SANS_BOLD, 28)
-    for i, (kicker, accent, headline, body, number) in enumerate(stories):
-        x, y = xs[i % 2], ys[i // 2]
-        d.rectangle([x, y, x + card_w, y + card_h], fill=CARD,
-                    outline=NAVY, width=2)
-        d.rectangle([x, y, x + 8, y + card_h], fill=accent)
-        tx = x + 26
-        d.text((tx, y + 14), kicker, font=kick_f, fill=accent)
-        rule(d, tx, y + 42, 46, accent)
-        hy = draw_block(d, tx, y + 54, headline, head_f, INK, 424, 35)
-        # Narrow body column so the corner number never collides with text.
-        draw_block(d, tx, hy + 8, body, body_f, BODY, 400, 24)
-        d.text((x + card_w - 26 - d.textlength(number, font=num_f),
-                y + card_h - 38), number, font=num_f, fill=NAVY)
+    for c in cards:
+        d.rounded_rectangle([c["x0"], c["y0"], c["x1"], c["y1"]],
+                            radius=12, fill=CARD, outline=LINE, width=2)
+        d.rounded_rectangle([c["x0"], c["y0"], c["x1"], c["y0"] + 10],
+                            radius=5, fill=c["bar"])
+        d.text((c["x0"] + 20, c["y0"] + 24), c["kicker"],
+               font=font(SANS_BOLD, 17), fill=c["bar"])
+        icon_cx = c["x1"] - 52
+        icon_cy = c["y0"] + 48
+        if c["icon"] == "burst":
+            starburst(d, icon_cx, icon_cy, 30, 13, 8, CRIMSON)
+            d.ellipse([icon_cx - 8, icon_cy - 8, icon_cx + 8, icon_cy + 8],
+                      fill=GOLD)
+        elif c["icon"] == "scales":
+            scales(d, icon_cx, icon_cy, 26, TEAL)
+        elif c["icon"] == "lock":
+            padlock(d, icon_cx, icon_cy, 44, 40, NAVY_SOFT)
+        else:
+            d.ellipse([icon_cx - 32, icon_cy - 32, icon_cx + 32, icon_cy + 32],
+                      outline=GOLD, width=4)
+            cross(d, icon_cx, icon_cy, 20, CRIMSON)
+        y = para(d, (c["x0"] + 20, c["y0"] + 52), c["head"],
+                 font(SERIF, 27), INK, c["x1"] - c["x0"] - 110, 33)
+        para(d, (c["x0"] + 20, y + 6), c["body"], font(SANS, 19), GREY,
+             c["x1"] - c["x0"] - 40, 26)
 
-    # ---- Bottom strip: cricket ------------------------------------------
-    d.rectangle([24, 878, 1000, 984], fill=GOLD)
-    d.text((52, 890), "SPORT  /  WELLINGTON", font=kick_f, fill=NAVY_DARK)
-    storm = load(SANS_BOLD, 28)
-    d.text((52, 914), "Jaiswal and Rahul hit back for India in Wellington",
-           font=storm, fill=INK)
-    storm_body = load(SANS, 21)
-    d.text((52, 950),
-           "India reach 159/1 at stumps on Day 2, replying to New Zealand's 368.",
-           font=storm_body, fill=(74, 54, 8))
-    d.ellipse([892, 896, 968, 972], outline=NAVY_DARK, width=4)
-    circ = load(SANS_BOLD, 34)
-    label = "06"
-    d.text((930 - d.textlength(label, font=circ) / 2, 914), label,
-           font=circ, fill=NAVY_DARK)
+    # ---- bottom strip: cricket ---------------------------------------
+    d.rounded_rectangle([24, 812, 1000, 948], radius=14, fill=GREEN)
+    d.text((52, 828), "SPORT  ·  CRICKET  ·  WELLINGTON TEST",
+           font=font(SANS_BOLD, 19), fill=(196, 224, 196))
+    para(d, (52, 858), "India fight back in Wellington",
+         font(SERIF, 30), (255, 255, 255), 660, 38)
+    para(d, (52, 902), "Jaiswal and Rahul led India\u2019s "
+         "fightback in the Wellington Test.",
+         font(SANS, 20), (220, 235, 220), 660, 27)
+    bat = Image.new("RGBA", (220, 120), (0, 0, 0, 0))
+    bd = ImageDraw.Draw(bat)
+    bd.rounded_rectangle([20, 44, 150, 76], radius=8, fill=(232, 214, 170))
+    bd.rectangle([150, 54, 196, 66], fill=(120, 72, 20))
+    bat = bat.rotate(-24, resample=Image.BICUBIC, center=(110, 60))
+    img.paste(bat, (760, 830), bat)
+    d.ellipse([880, 900, 916, 936], fill=CRIMSON, outline=(255, 255, 255),
+              width=2)
 
-    # ---- Footer ---------------------------------------------------------
-    foot = load(SANS, 19)
-    d.text((24, 994), "Compiled from verified reports  |  One image, six stories",
-           font=foot, fill=MUTED)
+    # ---- footer --------------------------------------------------------
+    centred(d, W // 2, 968,
+            "Six stories from Saturday 21 November 2026, verified from "
+            "wire reports.",
+            font(SANS, 17), GREY)
 
-    img.save("entry.png")
-    print("wrote entry.png", img.size)
+    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "entry.png")
+    img.save(out, "PNG", optimize=True)
+    print("wrote", out, img.size)
 
 
 if __name__ == "__main__":
